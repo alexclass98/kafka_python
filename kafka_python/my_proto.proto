@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package mypackage;
+
+service MyService {
+  rpc MyMethod(MyRequest) returns (MyResponse);
+}
+
+message MyRequest {
+  int32 id_card = 1;
+  int64 number_card = 2;
+  int32 cvc = 3;
+  int32 pin = 4;
+  int32 contract_id = 5;
+}
+
+message MyResponse {
+  int32 id_card = 1;
+  int64 number_card = 2;
+  int32 cvc = 3;
+  int32 pin = 4;
+  int32 contract_id = 5;
+}

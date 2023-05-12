@@ -1,80 +1,45 @@
-import smtplib
-import time
-from email.mime.text import MIMEText
-from json import dumps
+from concurrent import futures
+import grpc
+import my_proto_pb2
+import my_proto_pb2_grpc
 from kafka import KafkaProducer, KafkaConsumer
 
 
-def sendKafka():
-    my_producer = KafkaProducer(
-        bootstrap_servers=['localhost:29092'],
-        value_serializer=lambda x: dumps(x).encode('utf-8')
-    )
+class MyServiceServicer(my_proto_pb2_grpc.MyServiceServicer):
+    kafka_server = 'localhost:29092'
+    producer = KafkaProducer(bootstrap_servers=[kafka_server], value_serializer=lambda x: x.encode('utf-8'))
+    consumer = KafkaConsumer("my_topic_name", bootstrap_servers=[kafka_server], auto_offset_reset='earliest', enable_auto_commit=True, group_id='my_group_id', value_deserializer=lambda x: x.decode('utf-8'))
 
-    message = "1"
-    while message != "0":
-        message = input("Type your message: ")
-        my_producer.send("testnum", value=message)
-    print("sendKafka ended")
+    def MyMethod(self, request, context):
+        id_card = request.id_card
+        number_card = request.number_card
+        cvc = request.cvc
+        pin = request.pin
+        contract_id = request.contract_id
 
+        message = f"id_card:{id_card}|number_card:{number_card}|cvc:{cvc}|pin:{pin}|contract_id:{contract_id}"
+        self.producer.send("my_topic_name", message)
+        self.producer.flush()
 
-def getKafka():
-    consumer = KafkaConsumer('testnum',
-                             bootstrap_servers=['localhost:29092'],
-                             group_id='test',
-                             auto_offset_reset='earliest')
-    for msg in consumer:
-        res_str = msg.value.decode("utf-8")
-        print("Text:", res_str)
-        send_email(res_str, 0)
-    print("getKafka ended")
-
-
-def send_email(message, count):
-    sender = "alexorange707@gmail.com"
-    password = "jdnpdzqcngqvyruu"
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-    except Exception as _ex:
-        time.sleep(5)
-        print("Проверьте Ваш интернет! Полученное слово не доставлено")
-        if count < 3:
-            count += 1
-            send_email(message, count)
-        else:
-            print("Ошибка отправки(")
-        print(f"{_ex}\nCheck your internet!")
-        return
-
-    try:
-        server.login(sender, password)
-        msg = MIMEText(message)
-        msg["Subject"] = "DZ PO ST Balabanov!"
-        server.sendmail(sender, sender, msg.as_string())
-
-        # server.sendmail(sender, sender, f"Subject: CLICK ME PLEASE!\n{message}")
-        print("Сообщение доставлено!")
-    except Exception as _ex:
-        print(f"{_ex}\nCheck your login or password please!")
-        return
+        for msg in self.consumer:
+            if msg.topic == "my_topic_name":
+                response_msg = msg.value
+                id_card, number_card, cvc, pin, contract_id = response_msg.split("|")
+                response = my_proto_pb2.MyResponse(id_card=int(id_card.split(":")[1]),
+                                                   number_card=int(number_card.split(":")[1]),
+                                                   cvc=int(cvc.split(":")[1]),
+                                                   pin=int(pin.split(":")[1]),
+                                                   contract_id=int(contract_id.split(":")[1]))
+                return response
 
 
+def serve():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    my_proto_pb2_grpc.add_MyServiceServicer_to_server(MyServiceServicer(), server)
+    server.add_insecure_port('[::]:50051')
+    server.start()
+    server.wait_for_termination()
 
 
-
-def print_hi():
-    print(f'Здравствуйте!\n Брокер успешно запущен')
-
-
-
-def main():
-    print_hi()
-    while True:
-        sendKafka()
-        getKafka()
-
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    serve()
